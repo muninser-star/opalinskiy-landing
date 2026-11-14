@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-k6ErTeXLCN+69PpXlSJpNQYU4p/Z8s04S1V6lY0nnOk='; style-src 'unsafe-inline'; img-src https: data:; connect-src https://cuhplpukqhdfutcymtmv.supabase.co; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#f6f7f0"><title>Семейное меню</title>
+<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-WYjM6AzoAtXW+gwOCmP4N6Brko42DT9HQx4u25POws4='; style-src 'unsafe-inline'; img-src https: data:; connect-src https://cuhplpukqhdfutcymtmv.supabase.co; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#f6f7f0"><title>Семейное меню</title>
 <style>
 :root{color-scheme:light;--bg:#f6f7f0;--paper:#fffefa;--ink:#243426;--muted:#5e6c5e;--green:#305943;--deep:#20432f;--line:#e0e6d9;--pale:#edf3e8;--accent:#e1ebd9;--shadow:0 5px 19px #24342609;font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
 *{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}button,select{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #729d72;outline-offset:2px}a{color:var(--deep)}h1,h2,h3,p{margin:0}h1,h2,h3{letter-spacing:-.025em}h1{font-weight:800;font-size:clamp(2.3rem,5vw,4.25rem);line-height:1.01}h2{font-size:1.42rem}h3{font-size:1.08rem}svg{flex:none;vertical-align:middle}
@@ -63,7 +63,16 @@
 .rating-form{margin-top:15px}
 .rating-grid{display:grid;grid-template-columns:1fr 1.25fr;gap:7px 12px}
 .rating-form fieldset>.btn{margin-top:10px}
-.kid-note p{line-height:1.5;margin-bottom:8px}
+.kids-groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(245px,100%),1fr));gap:14px;margin-top:16px}
+.kids-section h2{margin-bottom:9px}
+.kids-section + .kids-section{margin-top:16px}
+.kids-groups>.kids-section{margin-top:0}
+.kids-list{list-style:none;margin:0;padding:0}
+.kids-list li{padding:10px 0;overflow-wrap:anywhere}
+.kids-list li+li{border-top:1px solid var(--line)}
+.kids-list li p{margin:4px 0 0;line-height:1.45}
+.kids-list .table-dish{white-space:normal;text-align:left}
+.kids-list .kids-rating{font-size:.88rem}
 .shop-tg{margin:0 0 7px 25px;font-size:.78rem;color:var(--muted)}
 .shop-item+.shop-item{border-top:1px solid var(--line)}
 .shop-item .shoprow{border:0}
@@ -296,10 +305,11 @@ function revokeAccess(){
  setAccessKey("");accessMessage="Ссылка больше не действует. Вставьте актуальную семейную ссылку или ключ.";
  cloud.initialized=false;cloud.pending=false;cloud.dirty=false;cloud.revision=0;
  cloud.status="local";cloud.vision=false;cloud.telegram=false;
- diary=null;state=hydrate(initial());notice="";recipeQuery="";swapFrom=null;dragged=null;
+ diary=null;kidsPreferences=null;kid=3;state=hydrate(initial());notice="";recipeQuery="";swapFrom=null;dragged=null;
  closeDialog();dialog.replaceChildren();render();
 }
 let diary=null;
+let kidsPreferences=null,kid=3;
 const notificationDefaults=()=>({enabled:true,time:"08:00",zone:"Europe/Moscow",mode:"marked"});
 function migrateNotifications(cfg){
  if(!cfg)return notificationDefaults();
@@ -388,6 +398,7 @@ async function connectCloud(preference){
   const data=await cloudCall("read");
   cloud.vision=data.vision;cloud.telegram=data.telegram;
   diary=Array.isArray(data.diary)?data.diary:null;
+  kidsPreferences=Array.isArray(data.kidsPreferences)?data.kidsPreferences:null;
   const remote=data.state, localChanges=cloud.dirty;
   if(remote&&!preference&&localChanges&&cloud.revision!==remote.revision){
    cloud.dirty=true;cloud.status="conflict";render();
@@ -536,13 +547,36 @@ const feedback=(r,people)=>people.reduce((sum,i)=>{
 const ironFoods=new Set(["beef","beefcuts","lentil","beans","blackbeans","chickpea","edamame"]);
 const hasIronSource=r=>Object.keys(r.items).some(id=>ironFoods.has(id));
 function kidsPage(){
- const chosen=recipes.filter(r=>r.kids&&eligible(r,state.profile,active().prefs.exclude,[2,3]));
- const sort=(a,b)=>feedback(a,[2,3])-feedback(b,[2,3]);
- const list=type=>recipeCards(chosen.filter(r=>r.kids===type).sort(sort));
- return header("Что приготовить детям","Знакомые блюда для будней и мягкие варианты с источниками железа.")+
- '<div class="panel sidebox kid-note"><p>Начните со знакомого блюда, соус и новый продукт положите рядом. К чечевице или фасоли можно добавить сладкий перец или брокколи. Витамин C помогает усваивать железо из растительной пищи.</p><a href="https://ods.od.nih.gov/factsheets/iron-consumer/" target="_blank" rel="noreferrer">Железо в продуктах · NIH</a></div>'+
- '<h2 class="gaphead">Знакомые блюда</h2>'+list("familiar")+
- '<h2 class="gaphead">Мягкие блюда с источником железа</h2>'+list("iron");
+ const profile=kidsPreferences?.find(entry=>entry?.person===kid);
+ const excluded=active().prefs.exclude;
+ const allowed=recipe=>eligible(recipe,state.profile,excluded,[kid]);
+ const groups=[
+  ["Любимые блюда",profile?.loved||[]],
+  ["Может съесть",profile?.possible||[]],
+  ["Не любит",profile?.avoid||[]],
+ ];
+ const listed=new Set(groups.flatMap(([,items])=>items.map(item=>item.recipeId)));
+ const ideas=(profile?.ideas||[]).filter(item=>{
+  const recipe=Object.hasOwn(byId,item.recipeId)?byId[item.recipeId]:null;
+  const items=Object.fromEntries((item.ingredients||[]).map(name=>[foodKey(name),1]));
+  return (!recipe||allowed(recipe))&&allowed({items});
+ });
+ const rated=recipes.filter(r=>!listed.has(r.id)&&["yes","no"].includes(state.ratings[r.id]?.[kid]?.value))
+  .map(r=>({title:r.title,recipeId:r.id}));
+ const row=item=>{
+  const recipe=Object.hasOwn(byId,item.recipeId)?byId[item.recipeId]:null;
+  const rating=recipe&&state.ratings[recipe.id]?.[kid]?.value;
+  return '<li>'+(recipe&&allowed(recipe)?btn("detail",e(item.title),"table-dish",attr("id",recipe.id)):'<strong>'+e(item.title)+'</strong>')+
+   ((item.detail||item.note)?'<p class="muted">'+e(item.detail||item.note)+'</p>':'')+
+   (rating==="yes"||rating==="no"?'<p class="muted kids-rating">Оценка · '+(rating==="yes"?"Понравилось":"Не понравилось")+'</p>':'')+'</li>';
+ };
+ const section=(title,items)=>items.length?'<section class="kids-section panel sidebox"><h2>'+title+'</h2><ul class="kids-list">'+items.map(row).join("")+'</ul></section>':"";
+ const status=kidsPreferences===null?(cloud.status==="connecting"||cloud.status==="local"?"Загружаю предпочтения…":"Предпочтения сейчас недоступны."):
+  profile?"":"Предпочтения пока не записаны.";
+ return header("Что едят дети","")+
+  '<div class="switch" aria-label="Ребёнок">'+[3,2].map(index=>btn("kid",e(state.profile.names[index]),kid===index?"active":"quiet",attr("value",index)+' aria-pressed="'+(kid===index)+'"')).join("")+'</div>'+
+  (status?'<p class="panel message">'+e(status)+'</p>':'<div class="kids-groups">'+groups.map(([title,items])=>section(title,items)).join("")+'</div>')+
+  section("Можно попробовать",ideas)+section("Оценённые блюда",rated);
 }
 function ratingForm(r){
  return '<form id="rate-form" class="rating-form" data-id="'+e(r.id)+'"><fieldset><legend>Кому понравилось</legend><div class="rating-grid">'+
@@ -1061,6 +1095,7 @@ document.addEventListener("click",async event=>{
    break;
   }
   case "scope": scope=value;render();break;
+  case "kid": if(value==="2"||value==="3"){kid=Number(value);render();}break;
   case "day": day=value;if(target.dataset.open)scope="day";render();break;
   case "prev":
   case "next": newDate(shift(week,act==="prev"?-7:7),active().prefs.people);render();break;
