@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ru">
-<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-lSlAadEeD/Bxph0tQjGZm7gNTp+wEeDv3UpscyhXtZ8='; style-src 'unsafe-inline'; img-src https: data:; connect-src https://cuhplpukqhdfutcymtmv.supabase.co; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#f6f7f0"><title>Семейное меню</title>
+<head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-k6ErTeXLCN+69PpXlSJpNQYU4p/Z8s04S1V6lY0nnOk='; style-src 'unsafe-inline'; img-src https: data:; connect-src https://cuhplpukqhdfutcymtmv.supabase.co; base-uri 'none'; form-action 'none'"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><meta name="theme-color" content="#f6f7f0"><title>Семейное меню</title>
 <style>
 :root{color-scheme:light;--bg:#f6f7f0;--paper:#fffefa;--ink:#243426;--muted:#5e6c5e;--green:#305943;--deep:#20432f;--line:#e0e6d9;--pale:#edf3e8;--accent:#e1ebd9;--shadow:0 5px 19px #24342609;font-family:system-ui,sans-serif;background:var(--bg);color:var(--ink);font-size:15px}
 *{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}button,select{cursor:pointer}button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid #729d72;outline-offset:2px}a{color:var(--deep)}h1,h2,h3,p{margin:0}h1,h2,h3{letter-spacing:-.025em}h1{font-weight:800;font-size:clamp(2.3rem,5vw,4.25rem);line-height:1.01}h2{font-size:1.42rem}h3{font-size:1.08rem}svg{flex:none;vertical-align:middle}
@@ -260,6 +260,24 @@ const menuEndpoint="https://cuhplpukqhdfutcymtmv.supabase.co/functions/v1/family
 const sessionKey="family-menu-access-v1";
 const cloud={status:"local",revision:0,busy:false,pending:false,vision:false,telegram:false,dirty:false,initialized:false};
 let accessKey="", accessMessage="";
+const validAccessKey=value=>/^[0-9a-f]{64}$/i.test(value||"");
+function setAccessKey(value){
+ accessKey=validAccessKey(value)?value:"";
+ try{
+  if(accessKey)sessionStorage.setItem(sessionKey,accessKey);
+  else sessionStorage.removeItem(sessionKey);
+ }catch{}
+}
+function pastedAccessKey(value){
+ const text=String(value).trim();
+ if(validAccessKey(text))return text;
+ try{
+  const url=new URL(text);
+  if(url.origin!==menuOrigin||!["/menu","/menu/"].includes(url.pathname)||url.username||url.password||url.search)return "";
+  const key=new URLSearchParams(url.hash.slice(1)).get("access");
+  return validAccessKey(key)?key:"";
+ }catch{return "";}
+}
 function prepareAccess(){
  const params=new URLSearchParams(location.hash.slice(1));
  if(params.has("access"))history.replaceState(null,"",location.pathname+location.search);
@@ -267,21 +285,15 @@ function prepareAccess(){
   accessMessage="Откройте семейную ссылку на www.opalinskiy.ru.";
   return;
  }
- try{
-  accessKey=params.has("access")?params.get("access"):sessionStorage.getItem(sessionKey)||"";
-  if(!/^[0-9a-f]{64}$/i.test(accessKey)){
-   if(params.has("access"))accessMessage="Откройте актуальную семейную ссылку.";
-   accessKey="";sessionStorage.removeItem(sessionKey);
-   return;
-  }
-  sessionStorage.setItem(sessionKey,accessKey);
- }catch{
-  if(!/^[0-9a-f]{64}$/i.test(accessKey))accessKey="";
+ if(params.has("access")){
+  setAccessKey(params.get("access"));
+  if(!accessKey)accessMessage="Откройте актуальную семейную ссылку.";
+  return;
  }
+ try{setAccessKey(sessionStorage.getItem(sessionKey));}catch{}
 }
 function revokeAccess(){
- accessKey="";accessMessage="Ссылка больше не действует. Откройте актуальную семейную ссылку.";
- try{sessionStorage.removeItem(sessionKey);}catch{}
+ setAccessKey("");accessMessage="Ссылка больше не действует. Вставьте актуальную семейную ссылку или ключ.";
  cloud.initialized=false;cloud.pending=false;cloud.dirty=false;cloud.revision=0;
  cloud.status="local";cloud.vision=false;cloud.telegram=false;
  diary=null;state=hydrate(initial());notice="";recipeQuery="";swapFrom=null;dragged=null;
@@ -743,9 +755,11 @@ function shopPage(){
 function render(){
  if(!cloud.initialized){
   const loading=cloud.status==="connecting";
-  const message=loading?"Загружаю семейное меню…":accessKey?"Связи с сервером пока нет.":accessMessage||"Откройте семейную ссылку, чтобы войти.";
+  const message=loading?"Загружаю семейное меню…":accessKey?"Связи с сервером пока нет.":accessMessage||"Откройте семейную ссылку или вставьте её ниже.";
+  const form='<form id="access-form" autocomplete="off"><label>Семейная ссылка или ключ<input type="password" name="access" required maxlength="300" autocapitalize="off" spellcheck="false"></label><div class="formend"><button class="btn primary">Открыть меню</button></div></form>';
   app.innerHTML='<main class="wrap"><section class="panel sidebox access-screen"><h1>Семейное меню</h1><p role="status">'+e(message)+'</p>'+
-   (accessKey&&!loading?btn("cloud-retry","Попробовать ещё раз","primary"):"")+'</section></main>';
+   (accessKey&&!loading?btn("cloud-retry","Попробовать ещё раз","secondary"):"")+
+   (location.origin===menuOrigin&&!loading?form:"")+'</section></main>';
   return;
  }
  if(!active().prefs.people.includes(person))person=active().prefs.people[0];
@@ -1132,6 +1146,18 @@ document.addEventListener("change",async event=>{
 document.addEventListener("submit",async event=>{
  event.preventDefault();
  const form=event.target,data=new FormData(form);
+ if(form.id==="access-form"){
+  if(location.origin!==menuOrigin||cloud.busy)return;
+  const key=pastedAccessKey(data.get("access"));
+  form.reset();
+  if(!key){
+   showFormError(form,"Вставьте семейную ссылку целиком или её ключ из 64 символов.");
+   form.elements.access.focus();return;
+  }
+  setAccessKey(key);accessMessage="";
+  try{await connectCloud();}catch{}
+  return;
+ }
  if(form.id==="recipe-draft"){
   saveRecipeDraft(form,data);return;
  }
