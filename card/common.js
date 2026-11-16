@@ -97,11 +97,15 @@ export function storedPath(value) {
   return typeof value === 'string' && /^[0-9a-f-]{36}\.[a-z0-9]{1,8}$/i.test(value);
 }
 
-export async function resolveAssets(db, values) {
-  const paths = [...new Set(values.filter(storedPath))];
-  const urls = new Map(values.filter(
+export function inlineAssets(values) {
+  return new Map(values.filter(
     value => typeof value === 'string' && /^data:image\/jpeg;base64,[a-z0-9+/]+=*$/i.test(value)
   ).map(value => [value, value]));
+}
+
+export async function resolveAssets(db, values) {
+  const paths = [...new Set(values.filter(storedPath))];
+  const urls = inlineAssets(values);
   if (!paths.length) return urls;
   const {data, error} = await db.storage.from('business-card-files').createSignedUrls(paths, 600);
   if (!error) {

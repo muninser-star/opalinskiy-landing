@@ -1,8 +1,8 @@
 import {
-  aliasUrl, client, copyText, fieldLink, fieldTypes, isPhone, message,
-  node, resolveAssets, setAccent, webUrl
-} from './common.js';
-import {buildVcard, pictureBase64} from './vcard.js';
+  aliasUrl, client, copyText, fieldLink, fieldTypes, inlineAssets, isPhone, message,
+  node, resolveAssets, setAccent, storedPath, webUrl
+} from './common.js?v=2';
+import {buildVcard, pictureBase64} from './vcard.js?v=2';
 
 const db = client();
 const cardRoot = document.querySelector('#card');
@@ -15,19 +15,65 @@ function paragraph(text, cls) {
   return text ? node('p', {cls, text}) : null;
 }
 
-function buildHero(card, assets) {
+async function withinDeadline(run) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error('Request timed out'));
+      }, 6000);
+    });
+    return await Promise.race([run(controller.signal), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function assetLoader(values) {
+  const assets = inlineAssets(values);
+  let pending;
+  let loaded = !values.some(storedPath);
+
+  function load(retry = false) {
+    if (pending) return pending;
+    if (loaded && !retry) return Promise.resolve(assets);
+    pending = withinDeadline(() => resolveAssets(db, values))
+      .then(result => {
+        for (const [value, href] of result) assets.set(value, href);
+        loaded = true;
+        return assets;
+      })
+      .finally(() => { pending = undefined; });
+    return pending;
+  }
+  return {assets, load};
+}
+
+function buildHero(card, {assets, load}) {
   const name = [card.firstName, card.lastName].filter(Boolean).join(' ');
-  const photo = assets.get(card.photo);
-  const coverImage = assets.get(card.cover);
-  const cover = node('div', {cls: coverImage ? 'cover image-cover' : 'cover', 'aria-hidden': true},
-    coverImage ? node('img', {src: coverImage, alt: ''}) : null);
+  const coverImage = node('img', {alt: '', hidden: true});
+  const cover = node('div', {cls: 'cover', 'aria-hidden': true}, coverImage);
+  const portrait = node('img', {cls: 'portrait', alt: 'Фото профиля', width: 140, height: 140, hidden: true});
   const save = node('a', {cls: 'button primary', id: 'save-vcard', text: 'Сохранить в контакты'});
   const status = node('p', {cls: 'hint', role: 'status', hidden: true});
   let objectUrl;
-  const loadContact = async () => {
+  let preparation;
+  let saving = false;
+
+  async function prepareContact(retry) {
+    save.setAttribute('aria-busy', 'true');
     try {
+      if (retry && storedPath(card.photo)) await load(true);
+      let photo = assets.get(card.photo);
+      if (!photo && storedPath(card.photo)) {
+        await load();
+        photo = assets.get(card.photo);
+      }
       if (card.photo && !photo) throw new Error('Photo unavailable');
-      const jpeg = photo ? await pictureBase64(photo) : '';
+      showMedia();
+      const jpeg = photo ? await withinDeadline(signal => pictureBase64(photo, signal)) : '';
       const data = buildVcard(card, jpeg);
       objectUrl = URL.createObjectURL(new Blob([data], {type: 'text/vcard;charset=utf-8'}));
       save.href = objectUrl;
@@ -35,43 +81,79 @@ function buildHero(card, assets) {
       message(status, '');
     } catch {
       message(status, 'Не удалось загрузить фото для контакта. Нажмите, чтобы попробовать снова.', 'error');
+    } finally {
+      save.setAttribute('aria-busy', 'false');
     }
-  };
+  }
+
+  function loadContact(retry = false) {
+    preparation ??= prepareContact(retry).finally(() => { preparation = undefined; });
+    return preparation;
+  }
+
   save.addEventListener('click', async event => {
     if (objectUrl) return;
     event.preventDefault();
-    await loadContact();
-    if (objectUrl) save.click();
+    if (saving) return;
+    saving = true;
+    try {
+      await loadContact(true);
+      if (objectUrl) save.click();
+    } finally {
+      saving = false;
+    }
   });
   save.setAttribute('role', 'button');
   save.tabIndex = 0;
   save.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !objectUrl) save.click();
   });
-  void loadContact();
+  const content = node('div', {cls: 'hero-content no-photo'}, portrait,
+    node('h1', {text: name}), paragraph(card.headline, 'headline'), paragraph(card.role, 'role'), paragraph(card.about, 'about'),
+    node('div', {cls: 'actions'}, save), status);
 
-  return node('article', {cls: 'hero'}, cover,
-    node('div', {cls: photo ? 'hero-content' : 'hero-content no-photo'},
-      photo ? node('img', {src: photo, cls: 'portrait', alt: 'Фото профиля', width: 140, height: 140}) : null,
-      node('h1', {text: name}), paragraph(card.headline, 'headline'), paragraph(card.role, 'role'), paragraph(card.about, 'about'),
-      node('div', {cls: 'actions'}, save), status));
+  function showMedia() {
+    for (const [image, path] of [[portrait, card.photo], [coverImage, card.cover]]) {
+      const href = assets.get(path);
+      if (href && image.getAttribute('src') !== href) image.src = href;
+      image.hidden = !href;
+    }
+    content.classList.toggle('no-photo', portrait.hidden);
+    cover.classList.toggle('image-cover', !coverImage.hidden);
+  }
+
+  showMedia();
+  return {section: node('article', {cls: 'hero'}, cover, content), showMedia, loadContact};
 }
 
 function buildContacts(fields, assets) {
+  const deferred = [];
   const rows = fields.map(field => {
     const file = field.type === 'file';
     const href = file ? assets.get(field.value) : fieldLink(field.type, field.value);
-    if (!href) return null;
+    if (!href && !file) return null;
     const title = field.label || fieldTypes[field.type]?.[0] || 'Ссылка';
     const detail = isPhone(field.type) || field.type === 'email' ? field.value : '';
-    const external = href.startsWith('https:') && !file;
-    return node('li', {}, node('a', {href, cls: 'contact-row', target: external ? '_blank' : null, rel: external ? 'noopener noreferrer' : null,
+    const external = !file && href.startsWith('https:');
+    const link = node('a', {href, cls: 'contact-row', target: external ? '_blank' : null, rel: external ? 'noopener noreferrer' : null,
       download: file ? field.filename || 'attachment' : null},
       node('span', {}, node('strong', {text: title}), detail ? node('small', {text: detail}) : null),
-      node('span', {cls: 'contact-arrow', 'aria-hidden': true})));
+      node('span', {cls: 'contact-arrow', 'aria-hidden': true}));
+    const row = node('li', {hidden: !href}, link);
+    if (file) deferred.push({row, link, path: field.value});
+    return row;
   }).filter(Boolean);
-  return rows.length ? node('section', {cls: 'panel'},
-    node('h2', {text: 'Контакты'}), node('ul', {cls: 'contact-list'}, ...rows)) : null;
+  const section = node('section', {cls: 'panel', hidden: !rows.some(row => !row.hidden)},
+    node('h2', {text: 'Контакты'}), node('ul', {cls: 'contact-list'}, ...rows));
+  function showFiles() {
+    for (const {row, link, path} of deferred) {
+      const href = assets.get(path);
+      if (href) link.href = href;
+      row.hidden = !href;
+    }
+    section.hidden = !rows.some(row => !row.hidden);
+  }
+  return {section, showFiles};
 }
 
 function labeledField(label, name, attrs = {}, type = 'input') {
@@ -143,29 +225,41 @@ function buildInquiry(config) {
 
 async function showCard() {
   cardRoot.setAttribute('aria-busy', 'true');
+  cardRoot.replaceChildren(node('p', {cls: 'notice', role: 'status', text: 'Загружаем визитку…'}));
+  share.hidden = true;
   try {
-    const {data, error} = await db.from('business_card_public').select('configuration').maybeSingle();
+    const {data, error} = await withinDeadline(signal =>
+      db.from('business_card_public').select('configuration').abortSignal(signal).maybeSingle());
     if (error) throw error;
     if (!data) {
-      cardRoot.replaceChildren(node('p', {cls: 'notice', text: 'Визитка сейчас недоступна.'}));
+      cardRoot.replaceChildren(node('p', {cls: 'notice', role: 'status', text: 'Визитка сейчас недоступна.'}));
       return;
     }
     const card = data.configuration;
     const filePaths = card.fields.filter(field => field.type === 'file').map(field => field.value);
-    const assets = await resolveAssets(db, [card.photo, card.cover, ...filePaths]);
+    const media = assetLoader([card.photo, card.cover, ...filePaths]);
+    const hero = buildHero(card, media);
+    const contacts = buildContacts(card.fields, media.assets);
     setAccent(card.accent);
     const company = card.company || card.companyAbout
       ? node('section', {cls: 'panel'}, node('h2', {text: 'О компании'}),
         paragraph(card.company, 'headline'), paragraph(card.companyAbout, 'about')) : null;
     cardRoot.replaceChildren(...[
-      buildHero(card, assets), buildContacts(card.fields, assets), company, buildInquiry(card.inquiry)
+      hero.section, contacts.section, company, buildInquiry(card.inquiry)
     ].filter(Boolean));
     currentShare = {url: aliasUrl(card.slug), title: [card.firstName, card.lastName].filter(Boolean).join(' ')};
     share.hidden = false;
+    void media.load().then(() => {
+      hero.showMedia();
+      contacts.showFiles();
+    }).catch(() => {
+      // Metadata and the contact actions are usable when attachments are unavailable.
+    });
+    void hero.loadContact();
   } catch {
     const retry = node('button', {cls: 'button outline', text: 'Повторить загрузку'});
     retry.addEventListener('click', showCard);
-    cardRoot.replaceChildren(node('p', {cls: 'notice', 'data-tone': 'error', text: 'Не удалось загрузить визитку.'}), retry);
+    cardRoot.replaceChildren(node('p', {cls: 'notice', role: 'alert', 'data-tone': 'error', text: 'Не удалось загрузить визитку.'}), retry);
   } finally {
     cardRoot.setAttribute('aria-busy', 'false');
   }

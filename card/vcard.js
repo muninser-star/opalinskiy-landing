@@ -1,4 +1,4 @@
-import {fieldLink, isPhone} from './common.js';
+import {fieldLink, isPhone} from './common.js?v=2';
 
 function escapeValue(value = '') {
   return value.replace(/\\/g, '\\\\').replace(/\r\n|\n|\r/g, '\\n').replace(/([;,])/g, '\\$1');
@@ -44,8 +44,8 @@ export function buildVcard(card, jpegBase64 = '') {
   return lines.map(fold).join('\r\n') + '\r\n';
 }
 
-export async function pictureBase64(url) {
-  const response = await fetch(url);
+export async function pictureBase64(url, signal) {
+  const response = await fetch(url, {signal});
   if (!response.ok) throw new Error('Photo unavailable');
   const source = await response.blob();
   const photo = source.type === 'image/jpeg' ? source : await toJpeg(source, 512);

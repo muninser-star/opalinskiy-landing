@@ -1,8 +1,8 @@
 import {
   aliasUrl, client, copyText, fieldLink, fieldTypes, isPhone, message, node,
   resolveAssets, setAccent, webUrl
-} from './common.js';
-import {toJpeg} from './vcard.js';
+} from './common.js?v=2';
+import {toJpeg} from './vcard.js?v=2';
 
 const db = client(true);
 const form = document.querySelector('#editor-form');
