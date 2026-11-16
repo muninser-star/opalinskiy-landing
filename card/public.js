@@ -1,8 +1,8 @@
 import {
-  aliasUrl, client, copyText, fieldLink, fieldTypes, inlineAssets, isPhone, message,
-  node, resolveAssets, setAccent, storedPath, webUrl
-} from './common.js?v=2';
-import {buildVcard, pictureBase64} from './vcard.js?v=2';
+  aliasUrl, client, copyText, fieldLink, fieldTypes, icon, inlineAssets, isMessageLink,
+  isPhone, isSocial, message, node, resolveAssets, setAccent, storedPath, webUrl
+} from './common.js?v=3';
+import {buildVcard, pictureBase64} from './vcard.js?v=3';
 
 const db = client();
 const cardRoot = document.querySelector('#card');
@@ -53,10 +53,10 @@ function assetLoader(values) {
 
 function buildHero(card, {assets, load}) {
   const name = [card.firstName, card.lastName].filter(Boolean).join(' ');
-  const coverImage = node('img', {alt: '', hidden: true});
-  const cover = node('div', {cls: 'cover', 'aria-hidden': true}, coverImage);
+  const coverImage = node('img', {alt: ''});
+  const cover = node('div', {cls: 'cover', 'aria-hidden': true, hidden: true}, coverImage);
   const portrait = node('img', {cls: 'portrait', alt: 'Фото профиля', width: 140, height: 140, hidden: true});
-  const save = node('a', {cls: 'button primary', id: 'save-vcard', text: 'Сохранить в контакты'});
+  const save = node('a', {cls: 'button primary', id: 'save-vcard'}, icon('save'), 'Сохранить в контакты');
   const status = node('p', {cls: 'hint', role: 'status', hidden: true});
   let objectUrl;
   let preparation;
@@ -108,35 +108,47 @@ function buildHero(card, {assets, load}) {
   save.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !objectUrl) save.click();
   });
-  const content = node('div', {cls: 'hero-content no-photo'}, portrait,
+  const content = node('div', {cls: 'hero-content'}, portrait,
     node('h1', {text: name}), paragraph(card.headline, 'headline'), paragraph(card.role, 'role'), paragraph(card.about, 'about'),
     node('div', {cls: 'actions'}, save), status);
+  const section = node('article', {cls: 'hero'}, cover, content);
+
+  function displayCover(show) {
+    cover.hidden = !show;
+    section.classList.toggle('has-cover', show);
+  }
+  coverImage.addEventListener('load', () => displayCover(true));
+  coverImage.addEventListener('error', () => displayCover(false));
 
   function showMedia() {
-    for (const [image, path] of [[portrait, card.photo], [coverImage, card.cover]]) {
-      const href = assets.get(path);
-      if (href && image.getAttribute('src') !== href) image.src = href;
-      image.hidden = !href;
+    const photo = assets.get(card.photo);
+    if (photo && portrait.getAttribute('src') !== photo) portrait.src = photo;
+    portrait.hidden = !photo;
+    const backdrop = assets.get(card.cover);
+    if (backdrop && coverImage.getAttribute('src') !== backdrop) {
+      displayCover(false);
+      coverImage.src = backdrop;
     }
-    content.classList.toggle('no-photo', portrait.hidden);
-    cover.classList.toggle('image-cover', !coverImage.hidden);
   }
 
   showMedia();
-  return {section: node('article', {cls: 'hero'}, cover, content), showMedia, loadContact};
+  return {section, showMedia, loadContact};
 }
 
 function buildContacts(fields, assets) {
   const deferred = [];
   const rows = fields.map(field => {
     const file = field.type === 'file';
-    const href = file ? assets.get(field.value) : fieldLink(field.type, field.value);
+    const href = file ? assets.get(field.value) : fieldLink(field.type, field.value, field.messageUrl);
     if (!href && !file) return null;
     const title = field.label || fieldTypes[field.type]?.[0] || 'Ссылка';
-    const detail = isPhone(field.type) || field.type === 'email' ? field.value : '';
-    const external = !file && href.startsWith('https:');
+    const detail = isPhone(field.type) || field.type === 'email' ? field.value
+      : isSocial(field.type) && isMessageLink(field.type, href, field.messageUrl) ? 'Написать'
+        : field.type === 'linkedin' ? 'Профиль' : '';
+    const external = !file && !isSocial(field.type) && href.startsWith('https:');
     const link = node('a', {href, cls: 'contact-row', target: external ? '_blank' : null, rel: external ? 'noopener noreferrer' : null,
       download: file ? field.filename || 'attachment' : null},
+      node('span', {cls: 'contact-badge', 'data-service': field.type}, icon(fieldTypes[field.type] ? field.type : 'link')),
       node('span', {}, node('strong', {text: title}), detail ? node('small', {text: detail}) : null),
       node('span', {cls: 'contact-arrow', 'aria-hidden': true}));
     const row = node('li', {hidden: !href}, link);
@@ -163,7 +175,7 @@ function labeledField(label, name, attrs = {}, type = 'input') {
 function buildInquiry(config) {
   if (!config?.enabled || !config.consentText || !webUrl(config.consentUrl)) return null;
   const form = node('form');
-  const submit = node('button', {cls: 'button primary', type: 'submit', text: 'Отправить'});
+  const submit = node('button', {cls: 'button primary', type: 'submit'}, icon('send'), 'Отправить');
   const status = node('p', {cls: 'hint', role: 'status', hidden: true});
   const phone = labeledField('Телефон', 'phone', {type: 'tel', autocomplete: 'tel', maxlength: 30});
   const email = labeledField('Электронная почта', 'email', {type: 'email', autocomplete: 'email', maxlength: 254});
@@ -257,7 +269,7 @@ async function showCard() {
     });
     void hero.loadContact();
   } catch {
-    const retry = node('button', {cls: 'button outline', text: 'Повторить загрузку'});
+    const retry = node('button', {cls: 'button outline', type: 'button'}, icon('repeat'), 'Повторить загрузку');
     retry.addEventListener('click', showCard);
     cardRoot.replaceChildren(node('p', {cls: 'notice', role: 'alert', 'data-tone': 'error', text: 'Не удалось загрузить визитку.'}), retry);
   } finally {

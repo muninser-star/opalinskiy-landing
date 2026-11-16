@@ -10,14 +10,14 @@
   <meta property="og:url" content="https://www.opalinskiy.ru/card/">
   <link rel="canonical" href="https://www.opalinskiy.ru/card/">
   <title>Денис Опалинский — визитка</title>
-  <link rel="stylesheet" href="card.css?v=2">
+  <link rel="stylesheet" href="card.css?v=3">
   <script defer src="vendor/supabase.js"></script>
-  <script type="module" src="public.js?v=2"></script>
+  <script type="module" src="public.js?v=3"></script>
 </head>
 <body>
   <header class="mast">
     <a class="brand" href="/"><span class="mark" aria-hidden="true">ДО</span> opalinskiy.ru</a>
-    <button id="share-card" class="button outline" type="button" hidden>Поделиться</button>
+    <button id="share-card" class="button outline" type="button" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="icons.svg?v=3#share"></use></svg>Поделиться</button>
   </header>
   <main id="card" class="card-stack" aria-busy="true">
     <p id="card-status" class="notice" role="status">Загружаем визитку…</p>
@@ -26,15 +26,15 @@
   <noscript><p class="notice">Включите JavaScript, чтобы открыть визитку.</p></noscript>
   <dialog id="share-dialog" aria-labelledby="share-heading">
     <form method="dialog">
-      <button class="close" aria-label="Закрыть">×</button>
+      <button class="close" aria-label="Закрыть"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="icons.svg?v=3#close"></use></svg></button>
     </form>
     <h2 id="share-heading">Поделиться визиткой</h2>
     <img class="qr" src="qr.png" alt="QR-код визитки Дениса Опалинского" width="320" height="320">
     <p class="share-url"><a id="share-url" href="https://www.opalinskiy.ru/card/">www.opalinskiy.ru/card/</a></p>
     <div class="actions">
-      <button class="button primary" id="copy-link" type="button">Скопировать ссылку</button>
-      <button class="button outline" id="send-link" type="button" hidden>Отправить</button>
-      <a class="button outline" href="qr.png" download="denis-opalinskiy-qr.png">Скачать QR</a>
+      <button class="button primary" id="copy-link" type="button"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="icons.svg?v=3#copy"></use></svg>Скопировать ссылку</button>
+      <button class="button outline" id="send-link" type="button" hidden><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="icons.svg?v=3#send"></use></svg>Отправить</button>
+      <a class="button outline" href="qr.png" download="denis-opalinskiy-qr.png"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><use href="icons.svg?v=3#download"></use></svg>Скачать QR</a>
     </div>
     <p id="share-status" role="status" class="hint" hidden></p>
   </dialog>

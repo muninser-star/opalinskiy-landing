@@ -15,7 +15,7 @@ export const fieldTypes = {
   email: ['Электронная почта', 'name@example.com'],
   file: ['Файл', ''],
   link: ['Ссылка', 'https://example.com/'],
-  vk: ['VK', 'https://vk.com/…'],
+  vk: ['VK', '@имя или https://vk.com/…'],
   telegram: ['Telegram', '@имя или https://t.me/…'],
   youtube: ['Канал YouTube', 'https://www.youtube.com/…'],
   whatsapp: ['WhatsApp', 'Номер телефона или https://wa.me/…'],
@@ -29,6 +29,8 @@ export const fieldTypes = {
 };
 
 export const isPhone = type => type === 'mobile' || type === 'phone';
+export const isSocial = type => Object.hasOwn(fieldTypes, type)
+  && !['mobile', 'phone', 'email', 'link', 'file'].includes(type);
 
 export function node(tag, {cls, text, ...attrs} = {}, ...children) {
   const element = document.createElement(tag);
@@ -41,6 +43,23 @@ export function node(tag, {cls, text, ...attrs} = {}, ...children) {
   }
   element.append(...children.filter(child => child != null));
   return element;
+}
+
+export function icon(name) {
+  if (name === 'max') {
+    // Official brand mark from https://go.max.ru/brandbook.
+    return node('img', {cls: 'icon', src: new URL('max-icon.png?v=3', import.meta.url).href, alt: '', 'aria-hidden': true});
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  const shape = document.createElementNS(ns, 'use');
+  shape.setAttribute('href', new URL('icons.svg?v=3#' + name, import.meta.url).href);
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.setAttribute('focusable', 'false');
+  svg.append(shape);
+  return svg;
 }
 
 export function message(target, text, tone = '') {
@@ -58,7 +77,9 @@ export function webUrl(value) {
   }
 }
 
-export function fieldLink(type, input) {
+export function fieldLink(type, input = '', messageUrl = '') {
+  const direct = isSocial(type) && webUrl(messageUrl);
+  if (direct) return direct;
   const value = input.trim();
   if (!value) return '';
   if (isPhone(type)) {
@@ -71,11 +92,25 @@ export function fieldLink(type, input) {
   if (type === 'telegram' && /^@[a-z0-9_]+$/i.test(value)) {
     return 'https://t.me/' + value.slice(1);
   }
+  if (type === 'vk') {
+    const handle = /^(?:https:\/\/(?:www\.)?vk\.(?:com|ru)\/|@?)([a-z0-9_.]+)\/?$/i.exec(value);
+    if (handle) return 'https://vk.me/' + handle[1];
+  }
   if ((type === 'whatsapp' || type === 'viber') && /^\+?[0-9 ()-]+$/.test(value)) {
     const digits = value.replace(/\D/g, '');
     return digits.length >= 7 ? (type === 'whatsapp' ? 'https://wa.me/' : 'viber://chat?number=%2B') + digits : '';
   }
   return webUrl(value);
+}
+
+export function isMessageLink(type, href, override) {
+  return Boolean(webUrl(override)) || (
+    (type === 'telegram' && /^https:\/\/t\.me\/(?:[a-z0-9_]+\/?(?:\?|$)|m\/)/i.test(href))
+    || (type === 'vk' && href.startsWith('https://vk.me/'))
+    || (type === 'whatsapp' && /^https:\/\/(?:wa\.me\/|api\.whatsapp\.com\/send)/i.test(href))
+    || (type === 'viber' && href.startsWith('viber://chat?'))
+    || (type === 'linkedin' && /^https:\/\/(?:[a-z]+\.)?linkedin\.com\/messaging\//i.test(href))
+  );
 }
 
 export function setAccent(color) {

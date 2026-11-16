@@ -1,8 +1,8 @@
 import {
-  aliasUrl, client, copyText, fieldLink, fieldTypes, isPhone, message, node,
+  aliasUrl, client, copyText, fieldLink, fieldTypes, isPhone, isSocial, message, node,
   resolveAssets, setAccent, webUrl
-} from './common.js?v=2';
-import {toJpeg} from './vcard.js?v=2';
+} from './common.js?v=3';
+import {toJpeg} from './vcard.js?v=3';
 
 const db = client(true);
 const form = document.querySelector('#editor-form');
@@ -125,6 +125,12 @@ function renderFields(focusId = '', focusAction = '') {
       valueInput = value;
       value.addEventListener('input', () => { field.value = value.value; value.setCustomValidity(''); });
       controls.push(label('Значение', value));
+      if (isSocial(field.type)) {
+        const chat = node('input', {type: 'url', maxlength: 2048, value: field.messageUrl || '',
+          placeholder: 'https://…'});
+        chat.addEventListener('input', () => { field.messageUrl = chat.value.trim(); });
+        controls.push(label('Прямая ссылка на переписку (необязательно)', chat));
+      }
     }
 
     const checkbox = node('input', {type: 'checkbox', checked: field.visible});
@@ -290,6 +296,9 @@ function inputsToCard() {
     throw new Error('Для формы укажите текст согласия и HTTPS-ссылку на условия обработки данных.');
   }
   for (const field of card.fields) {
+    if (isSocial(field.type) && field.messageUrl && !webUrl(field.messageUrl)) {
+      throw new Error('Укажите HTTPS-ссылку на переписку для поля «' + (field.label || fieldTypes[field.type][0]) + '».');
+    }
     if (field.type !== 'file' && field.value.trim() && !fieldLink(field.type, field.value)) {
       throw new Error('Проверьте значение поля «' + (field.label || fieldTypes[field.type][0]) + '».');
     }

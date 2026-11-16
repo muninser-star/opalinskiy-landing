@@ -44,31 +44,20 @@ button:disabled { cursor: wait; opacity: .66; }
 .card-stack { display: grid; width: min(100% - 2rem, 38rem); margin-inline: auto; gap: 1rem; }
 .hero, .panel { background: var(--white); border: 1px solid var(--stroke); border-radius: var(--radius); }
 .hero { overflow: hidden; }
-.cover { height: clamp(110px, 26vw, 176px); background: var(--ink); position: relative; }
-.cover::before, .cover::after {
-  content: '';
-  position: absolute;
-  inset: auto max(1.4rem, 7%) 2.8rem;
-  height: 1px;
-  background: #d89b7c;
-}
-.cover::after { width: 12%; inset: auto max(1.4rem, 7%) 2.32rem auto; }
-.cover.image-cover::before, .cover.image-cover::after { display: none; }
+.cover { height: clamp(110px, 26vw, 176px); background: var(--paper); }
 .cover img { width: 100%; height: 100%; object-fit: cover; }
-.hero-content { padding: 0 clamp(1.2rem, 4.8vw, 2rem) clamp(1.3rem, 4vw, 2rem); position: relative; }
-.hero-content.no-photo { padding-top: 1.6rem; }
+.hero-content { padding: clamp(1.2rem, 4.8vw, 2rem); position: relative; }
 .portrait {
   --portrait-size: clamp(95px, 26vw, 140px);
   width: var(--portrait-size);
   height: var(--portrait-size);
   object-fit: cover;
   object-position: center 33%;
-  border: 5px solid var(--white);
   border-radius: 50%;
-  margin: -.78em 0 .9rem -.24rem;
-  font-size: clamp(58px, 12vw, 76px);
+  margin-bottom: .9rem;
   background: var(--paper);
 }
+.hero.has-cover .portrait { margin-top: -3.6rem; border: 4px solid var(--white); }
 .headline { margin-top: .75rem; font-size: clamp(1.12rem, 4.2vw, 1.35rem); font-weight: 700; line-height: 1.35; }
 .role, .about { margin-top: .7rem; color: var(--secondary); white-space: pre-wrap; overflow-wrap: anywhere; }
 .hero .actions { margin-top: 1.35rem; }
@@ -87,6 +76,7 @@ button:disabled { cursor: wait; opacity: .66; }
   text-decoration: none;
   font-weight: 650;
 }
+.icon { width: 1.15rem; height: 1.15rem; flex: none; }
 .primary { color: var(--button-ink); background: var(--accent); }
 .outline { color: var(--ink); background: transparent; border-color: var(--stroke); }
 .quiet { background: transparent; color: var(--secondary); }
@@ -105,12 +95,29 @@ button:disabled { cursor: wait; opacity: .66; }
   text-decoration: none;
   min-height: 46px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 2.25rem minmax(0, 1fr) auto;
   align-items: center;
   gap: .65rem;
   padding-block: .65rem;
 }
 .contact-row:hover strong { text-decoration: underline; }
+.contact-badge {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+}
+.contact-badge[data-service="telegram"] { color: #096a91; background: #e9f5fa; }
+.contact-badge[data-service="vk"] { color: #1c58a4; background: #edf3fc; }
+.contact-badge[data-service="whatsapp"] { color: #166641; background: #eaf6ef; }
+.contact-badge[data-service="linkedin"] { color: #0b6093; background: #eaf3fb; }
+.contact-badge[data-service="youtube"] { color: #a03536; background: #f9eaea; }
+.contact-badge[data-service="instagram"] { color: #8e3960; background: #f8edf3; }
+.contact-badge[data-service="ok"] { color: #995025; background: #fbf0e6; }
+.contact-badge[data-service="viber"], .contact-badge[data-service="max"] { color: #6451a3; background: #f2effc; }
 .contact-row small { display: block; font-size: .85rem; color: var(--secondary); }
 .contact-row span { overflow-wrap: anywhere; }
 .contact-row strong { display: block; font-weight: 650; }
@@ -119,7 +126,7 @@ dialog { width: min(100% - 2rem, 29rem); border: 1px solid var(--stroke); border
 dialog::backdrop { background: #191c208e; }
 dialog h2 { padding-inline: 2rem; }
 dialog .actions { justify-content: center; }
-.close { position: absolute; top: .45rem; right: .45rem; background: transparent; border: 0; color: var(--ink); font-size: 1.65rem; width: 44px; height: 44px; border-radius: 8px; }
+.close { position: absolute; top: .45rem; right: .45rem; display: grid; place-items: center; background: transparent; border: 0; color: var(--ink); font-size: 1.65rem; width: 44px; height: 44px; border-radius: 8px; }
 .close:hover { background: var(--paper); }
 .qr { width: min(100%, 320px); height: auto; margin: .5rem auto 0; }
 .share-url { margin: 0 0 .85rem; overflow-wrap: anywhere; }

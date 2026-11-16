@@ -1,4 +1,4 @@
-import {fieldLink, isPhone} from './common.js?v=2';
+import {fieldLink, fieldTypes, isPhone, isSocial} from './common.js?v=3';
 
 function escapeValue(value = '') {
   return value.replace(/\\/g, '\\\\').replace(/\r\n|\n|\r/g, '\\n').replace(/([;,])/g, '\\$1');
@@ -29,14 +29,20 @@ export function buildVcard(card, jpegBase64 = '') {
   ];
   if (card.company) lines.push('ORG:' + escapeValue(card.company));
   if (title) lines.push('TITLE:' + escapeValue(title));
-  for (const {type, value, visible} of card.fields) {
-    if (!visible || !fieldLink(type, value)) continue;
+  let linkNumber = 0;
+  for (const {type, value, label, visible, messageUrl} of card.fields) {
+    if (!visible) continue;
+    const href = fieldLink(type, value, messageUrl);
+    if (!href) continue;
     if (isPhone(type)) {
-      lines.push('TEL;TYPE=' + (type === 'mobile' ? 'CELL' : 'VOICE') + ':' + fieldLink(type, value).slice(4));
+      lines.push('TEL;TYPE=' + (type === 'mobile' ? 'CELL' : 'VOICE') + ':' + href.slice(4));
     } else if (type === 'email') {
       lines.push('EMAIL;TYPE=INTERNET:' + escapeValue(value));
     } else if (type === 'link') {
-      lines.push('URL:' + escapeValue(fieldLink(type, value)));
+      lines.push('URL:' + href);
+    } else if (isSocial(type)) {
+      const item = 'item' + ++linkNumber;
+      lines.push(item + '.URL:' + href, item + '.X-ABLabel:' + escapeValue(label?.trim() || fieldTypes[type][0]));
     }
   }
   if (jpegBase64) lines.push('PHOTO;ENCODING=b;TYPE=JPEG:' + jpegBase64);
