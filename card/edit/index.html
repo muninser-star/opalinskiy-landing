@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Редактор визитки — Денис Опалинский</title>
+  <link rel="stylesheet" href="../card.css">
+  <script defer src="../vendor/supabase.js"></script>
+  <script type="module" src="../edit.js"></script>
+</head>
+<body class="editor-body">
+  <header class="mast">
+    <a class="brand" href="/"><span class="mark" aria-hidden="true">ДО</span> opalinskiy.ru</a>
+    <div class="actions">
+      <a href="../" class="button outline">Открыть визитку</a>
+      <button id="sign-out" type="button" class="button quiet" hidden>Выйти</button>
+    </div>
+  </header>
+  <main class="editor" id="editor-main">
+    <h1>Редактор визитки</h1>
+    <p id="editor-status" class="notice" role="status">Проверяем вход…</p>
+    <form id="sign-in" class="panel sign-in" hidden>
+      <h2>Вход владельца</h2>
+      <label>Почта <input type="email" name="email" autocomplete="username" required></label>
+      <label>Пароль <input type="password" name="password" autocomplete="current-password" required></label>
+      <button type="submit" class="button primary">Войти</button>
+    </form>
+    <form id="editor-form" hidden>
+      <div class="panel">
+        <h2>Профиль</h2>
+        <div class="form-grid">
+          <label>Имя <input name="firstName" maxlength="100" required></label>
+          <label>Фамилия <input name="lastName" maxlength="100"></label>
+        </div>
+        <label>Заголовок <input name="headline" maxlength="200"></label>
+        <label>Должность <input name="role" maxlength="200"></label>
+        <label>О себе <textarea name="about" rows="4" maxlength="4000"></textarea></label>
+        <div class="form-grid">
+          <div id="photo-image" class="image-control"></div>
+          <div id="cover-image" class="image-control"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Контакты и ссылки</h2>
+        <div id="fields" class="field-stack"></div>
+        <details class="catalog" id="field-catalog">
+          <summary>Добавить поле</summary>
+          <label>Поиск по типам <input type="search" id="field-search" placeholder="Например, Telegram"></label>
+          <div class="type-list" id="type-list"></div>
+        </details>
+      </div>
+      <div class="panel">
+        <h2>О компании</h2>
+        <label>Название <input name="company" maxlength="200"></label>
+        <label>Описание <textarea name="companyAbout" rows="3" maxlength="2000"></textarea></label>
+      </div>
+      <div class="panel">
+        <h2>Оформление и ссылка</h2>
+        <label>Цвет кнопок <input type="color" name="accent"></label>
+        <div class="swatches" id="swatches" aria-label="Готовые цвета"></div>
+        <label>Подпись для дополнительной ссылки <input name="slug" maxlength="40" pattern="[a-z0-9\-]*" placeholder="denis"></label>
+        <div id="alias"></div>
+        <details>
+          <summary>QR и запись NFC</summary>
+          <div class="actions">
+            <button id="show-qr" class="button outline" type="button">Показать QR</button>
+            <a href="../qr.png" class="button outline" download="denis-opalinskiy-qr.png">Скачать QR</a>
+          </div>
+          <p>В NFC Tools выберите «Запись» → «Добавить запись» → «URL/URI». Вставьте <a href="../">https://www.opalinskiy.ru/card/</a>, нажмите «Записать» и поднесите телефон к метке.</p>
+          <p>Откройте ссылку, приложив метку к другому телефону. Подойдёт перезаписываемая NFC-метка NTAG213. <a href="https://www.wakdev.com/en/knowledge-base/how-to-guides/how-to-write-a-link-url-on-an-nfc-chip.html">Инструкция NFC Tools</a></p>
+        </details>
+      </div>
+      <div class="panel">
+        <h2>Форма обратного контакта</h2>
+        <label class="check"><input type="checkbox" name="inquiryEnabled"> Показывать форму на визитке</label>
+        <label>Текст согласия <textarea name="consentText" rows="3" maxlength="1000"></textarea></label>
+        <label>Ссылка на условия обработки данных <input type="url" name="consentUrl" maxlength="2048" placeholder="https://"></label>
+        <details id="inquiry-panel">
+          <summary>Входящие заявки</summary>
+          <div id="inquiries"></div>
+        </details>
+      </div>
+      <div class="panel">
+        <h2>Публикация</h2>
+        <p id="publication-state"></p>
+        <button id="toggle-publication" class="button outline" type="button"></button>
+      </div>
+      <div class="editor-save">
+        <button id="save-card" type="submit" class="button primary">Сохранить визитку</button>
+        <p id="save-status" role="status" class="hint"></p>
+      </div>
+    </form>
+  </main>
+  <dialog id="editor-qr" aria-labelledby="editor-qr-heading">
+    <form method="dialog"><button class="close" aria-label="Закрыть">×</button></form>
+    <h2 id="editor-qr-heading">QR-код визитки</h2>
+    <img class="qr" src="../qr.png" alt="QR-код визитки Дениса Опалинского" width="320" height="320">
+    <a href="../qr.png" class="button outline" download="denis-opalinskiy-qr.png">Скачать QR</a>
+  </dialog>
+</body>
+</html>
