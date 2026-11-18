@@ -121,10 +121,16 @@ export async function sendDocument(
 ): Promise<Outcome> {
   const body = new FormData();
   body.set("chat_id", chat);
-  body.set("document", new Blob([document.content], { type: "text/markdown;charset=utf-8" }), document.name);
+  body.set("document", new Blob([document.content], { type: "text/markdown" }), document.name);
   try {
-    const response = await fetch("https://api.telegram.org/bot" + token + "/sendDocument", {
-      method: "POST", body, signal: AbortSignal.timeout(15_000), redirect: "error",
+    const target = "https://api.telegram.org/bot" + token + "/sendDocument";
+    const multipart = new Request(target, { method: "POST", body });
+    const response = await fetch(target, {
+      method: "POST",
+      headers: multipart.headers,
+      body: await multipart.arrayBuffer(),
+      signal: AbortSignal.timeout(40_000),
+      redirect: "error",
     });
     const result = await response.json().catch(() => null);
     const id = result?.result?.message_id;
@@ -138,8 +144,11 @@ export async function sendDocument(
         : { state: "failed" };
     }
     if (result?.ok === false && [400, 401, 403, 404, 413].includes(result.error_code)) return { state: "failed" };
+    console.warn("transcript_document_unconfirmed", response.status,
+      typeof result?.error_code === "number" ? result.error_code : "no_error_code");
     return { state: "unknown" };
-  } catch {
+  } catch (error) {
+    console.warn("transcript_document_transport_failed", error instanceof Error ? error.name : "unknown");
     return { state: "unknown" };
   }
 }
@@ -190,7 +199,7 @@ async function deliver(db: SupabaseClient, item: Delivery, token: string, owner:
 export async function tickDeliveries(db: SupabaseClient, token: string, owner: string) {
   const { data, error } = await db.from("transcript_telegram_deliveries")
     .select("kind,job_id,binding_id,state,attempts,updated_at").in("state", ["pending", "sending"])
-    .lte("next_at", new Date().toISOString()).order("next_at").limit(5);
+    .lte("next_at", new Date().toISOString()).order("next_at").limit(2);
   if (error) throw error;
   for (const row of data as Delivery[]) {
     try {

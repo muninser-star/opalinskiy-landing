@@ -6,6 +6,8 @@ import { extractSummaryBlock, generateMeetingSummary, splitSummaryInput } from "
 import type { SummaryExtract, SummaryInput } from "./summary-model.ts";
 import { backgroundRetry } from "./background-retry.ts";
 import { deliveryStatus } from "./telegram-delivery.ts";
+import { summaryValidity } from "./question-core.ts";
+import type { Revision } from "./question-core.ts";
 
 type Job = {
   id: string;
@@ -17,6 +19,8 @@ type Job = {
   total_steps: number;
   lease: string | null;
   result: MeetingSummary | null;
+  question_revisions?: Revision[];
+  question_version?: number;
   error_code: string | null;
   created_at: string;
   updated_at: string;
@@ -34,7 +38,11 @@ function failure(code: string, status: number): Reply {
 async function response(db: SupabaseClient, job: Job): Promise<Reply> {
   const delivery = await deliveryStatus(db, "summary", job);
   if (job.state === "completed" && job.result) {
-    return { status: 200, body: { status: job.state, delivery, text: formatMeetingSummary(job.result), notes: job.result.notes } };
+    const current = job.question_revisions?.at(-1)?.result ?? job.result;
+    return { status: 200, body: {
+      status: job.state, delivery, text: formatMeetingSummary(current), notes: current.notes,
+      questionVersion: job.question_version ?? 0, questionExpiresAt: Date.parse(job.created_at) + summaryValidity,
+    } };
   }
   if (job.state === "failed") return { status: 200, body: { status: job.state, delivery, code: job.error_code } };
   return { status: 202, body: { status: job.state, delivery, stepsDone: job.step, totalSteps: job.total_steps } };
@@ -68,7 +76,7 @@ async function runStep(db: SupabaseClient, job: Job, key: string) {
     if (!job.input) throw new GeminiError("summary_interrupted", 409);
     if (job.step + 1 === job.total_steps) {
       const result = await generateMeetingSummary(key, job.input, job.extracts);
-      await persist({ state: "completed", result, step: job.total_steps, input: null, extracts: [], retry_count: 0, retry_at: null });
+      await persist({ state: "completed", result, step: job.total_steps, extracts: [], retry_count: 0, retry_at: null });
     } else {
       const extract = await extractSummaryBlock(key, job.input, job.step);
       await persist({ step: job.step + 1, extracts: [...job.extracts, extract], retry_count: 0, retry_at: null });
@@ -128,7 +136,7 @@ export async function handleMeetingSummary(
     .eq("id", id).eq("access_hash", accessHash).maybeSingle();
   if (error) throw error;
   const job = data as Job | null;
-  if (!job || Date.now() - Date.parse(job.created_at) > 86_400_000) return failure("summary_missing", 404);
+  if (!job || Date.now() - Date.parse(job.created_at) >= summaryValidity) return failure("summary_missing", 404);
   if (action === "create" && key) await advanceSummary(db, job, key, waitUntil);
   return await response(db, job);
 }
@@ -160,7 +168,7 @@ export async function advanceSummary(
 export async function tickSummaries(db: SupabaseClient, key: string, schedule: (task: Promise<unknown>) => void) {
   const now = Date.now();
   const { data, error } = await db.from("meeting_summaries").select("*").eq("state", "processing")
-    .gt("created_at", new Date(now - 86_400_000).toISOString())
+    .gt("created_at", new Date(now - summaryValidity).toISOString())
     .or("retry_at.is.null,retry_at.lte." + new Date(now).toISOString())
     .or("lease.is.null,updated_at.lte." + new Date(now - 160_000).toISOString())
     .order("updated_at").limit(2);

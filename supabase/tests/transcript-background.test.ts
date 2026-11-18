@@ -46,7 +46,7 @@ Deno.test("delivery sends a downloadable Markdown document and distinguishes unk
   try {
     globalThis.fetch = async (url, request) => {
       assert.match(String(url), /\/sendDocument$/);
-      const body = request?.body as FormData;
+      const body = await new Response(request?.body, { headers: request?.headers }).formData();
       const file = body.get("document") as File;
       assert.equal(file.name, "Проверка.md");
       assert.equal(body.has("protect_content"), false);

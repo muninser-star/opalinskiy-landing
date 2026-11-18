@@ -3,6 +3,7 @@ import { maxPartBytes, maxRecordingSeconds, partCount } from "./audio-plan.ts";
 import { GeminiError, recognizePiece } from "./gemini.ts";
 import type { Segment } from "./gemini.ts";
 import { handleMeetingSummary, tickSummaries } from "./summary-jobs.ts";
+import { handleQuestion } from "./questions.ts";
 import { backgroundRetry } from "./background-retry.ts";
 import { browserHash, deliveryStatus, handleTelegram, safeRecordingName, tickDeliveries } from "./telegram-delivery.ts";
 
@@ -688,6 +689,14 @@ async function handle(request: Request) {
       return reply(result, result.state.startsWith("invalid") ? 400 : 200);
     }
     const accessHash = await guestHash(request);
+    if (feature === "questions") {
+      if (!accessHash) return problem("forbidden", 403);
+      if (!request.headers.get("content-type")?.includes("application/json")) return problem("invalid_request", 400);
+      const body = await readAction<Record<string, unknown>>(request, 48 * 1024);
+      if (!body || typeof body !== "object" || Array.isArray(body)) return problem("invalid_request", 400);
+      const answer = await handleQuestion(db, body, accessHash, () => clientHash(request), polzaKey(), serviceKey);
+      return reply(answer.body, answer.status);
+    }
     if (feature === "summary") {
       if (!accessHash) return problem("forbidden", 403);
       if (!request.headers.get("content-type")?.includes("application/json")) return problem("invalid_request", 400);

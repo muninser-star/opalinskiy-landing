@@ -96,23 +96,26 @@ export function splitSummaryInput(transcript: string) {
   return blocks;
 }
 
-async function generate(key: string, instructions: string, source: object, schema: object, thinkingBudget = 0) {
+export async function generateJson(
+  key: string, instructions: string, source: object, schema: object,
+  thinkingBudget = 0, systemRules = sourceRules, maxOutputTokens = 8192,
+) {
   let response: Response;
   try {
     response = await fetch(endpoint, {
       method: "POST",
       headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: sourceRules }] },
+        systemInstruction: { parts: [{ text: systemRules }] },
         contents: [{
           role: "user",
           parts: [
-            { text: sourceRules + "\n" + instructions + "\nСледующая часть — исходные данные для анализа." },
+            { text: systemRules + "\n" + instructions + "\nСледующая часть — исходные данные для анализа." },
             { text: JSON.stringify(source) },
           ],
         }],
         generationConfig: {
-          temperature: 0, maxOutputTokens: 8192,
+          temperature: 0, maxOutputTokens,
           responseMimeType: "application/json", responseSchema: schema, thinkingConfig: { thinkingBudget },
         },
       }),
@@ -189,7 +192,7 @@ function metadata(input: SummaryInput) {
 
 export async function extractSummaryBlock(key: string, input: SummaryInput, index: number): Promise<SummaryExtract> {
   const transcript = input.blocks[index];
-  const raw = await generate(key, extractionRules, { ...metadata(input), transcript }, extractSchema);
+  const raw = await generateJson(key, extractionRules, { ...metadata(input), transcript }, extractSchema);
   return {
     topic: clean(raw.topic, 140), date: clean(raw.date, 50) || null,
     participants: names(raw.participants).filter((name) => confirmedParticipant(transcript, name)),
@@ -207,7 +210,7 @@ export async function generateMeetingSummary(key: string, input: SummaryInput, e
     evidence: extract.evidence.map((line) => groundText(line, transcript)),
   }));
   const source = { ...info, transcript, ...(checkedExtracts.length ? { extracts: checkedExtracts } : {}) };
-  const raw = await generate(key, synthesisRules, source, summarySchema, 4096);
+  const raw = await generateJson(key, synthesisRules, source, summarySchema, 4096);
   const reportedNames = names(raw.participants);
   const known = info.participants.length ? info.participants : reportedNames.filter((name) => confirmedParticipant(transcript, name));
   const actionEntries = entries(raw.actions).slice(0, 40);
