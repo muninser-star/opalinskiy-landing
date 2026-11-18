@@ -1,0 +1,36 @@
+transcript-telegram {
+  display: block;
+}
+
+.transcript-telegram summary {
+  cursor: pointer;
+  font-weight: 650;
+}
+
+.transcript-telegram [role="status"] {
+  margin: 12px 0;
+}
+
+.telegram-connect:not([hidden]) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.telegram-connect p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.telegram-connect input {
+  min-width: min(220px, 100%);
+}
+
+.transcript-telegram [hidden] {
+  display: none;
+}
+
+.telegram-delivery {
+  margin: 0 0 12px;
+}
