@@ -1,0 +1,26 @@
+{
+  "id": "/transcript/",
+  "name": "Расшифровка",
+  "short_name": "Расшифровка",
+  "description": "Расшифровка аудиозаписей и саммори встреч.",
+  "lang": "ru",
+  "start_url": "/transcript/",
+  "scope": "/transcript/",
+  "display": "standalone",
+  "background_color": "#292640",
+  "theme_color": "#292640",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
