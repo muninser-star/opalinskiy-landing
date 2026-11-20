@@ -78,11 +78,12 @@ function normalize(raw: unknown, window: ReturnType<typeof partWindow>) {
   return segments.sort((a, b) => a.start - b.start);
 }
 
-async function recognizeWindow(
-  key: string, bytes: Uint8Array, window: ReturnType<typeof partWindow>, prior: Segment[], reduced: boolean, timeout: number,
+export async function recognizeAudioWindow(
+  key: string, bytes: Uint8Array, window: ReturnType<typeof partWindow>, prior: Segment[], _reduced: boolean,
+  timeout = 105_000, mimeType = "audio/mpeg",
 ) {
   if (timeout <= 0) throw new GeminiError("chunk_interrupted", 502, "time_budget");
-  const model = reduced ? "gemini-2.5-flash-lite" : "gemini-2.5-flash";
+  const model = "gemini-2.5-flash";
   let response: Response;
   try {
     response = await fetch(modelBase + model + ":generateContent", {
@@ -91,10 +92,12 @@ async function recognizeWindow(
       body: JSON.stringify({
         contents: [{
           role: "user",
-          parts: [{ text: instruction(window, prior) }, { inlineData: { mimeType: "audio/mpeg", data: base64(bytes) } }],
+          parts: [{ text: instruction(window, prior) }, { inlineData: { mimeType, data: base64(bytes) } }],
         }],
         generationConfig: {
-          temperature: reduced ? 0.15 : 0, maxOutputTokens: reduced ? 8192 : 16_384,
+          temperature: 0,
+          maxOutputTokens: window.end - window.boundary <= 15 ? 2048 :
+            window.end - window.boundary <= 30 ? 4096 : 8192,
           responseMimeType: "application/json",
           responseSchema: schema, thinkingConfig: { thinkingBudget: 0 },
         },
@@ -145,12 +148,12 @@ export async function recognizePiece(
   if (!piece) throw new GeminiError("chunk_incomplete", 422, "invalid_piece");
   const last = pieceIndex + 1 === pieces.length;
   if (!reduced) {
-    return { segments: await recognizeWindow(key, piece.bytes, piece.window, prior, false, 105_000), last };
+    return { segments: await recognizeAudioWindow(key, piece.bytes, piece.window, prior, false), last };
   }
   const deadline = Date.now() + 108_000;
   const segments: Segment[] = [];
   for (const small of splitMp3(piece.bytes, piece.window, 60)) {
-    const recognized = await recognizeWindow(key, small.bytes, small.window, [...prior, ...segments], true,
+    const recognized = await recognizeAudioWindow(key, small.bytes, small.window, [...prior, ...segments], true,
       Math.min(60_000, deadline - Date.now()));
     segments.push(...recognized);
   }

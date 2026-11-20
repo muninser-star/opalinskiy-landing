@@ -63,3 +63,16 @@ export function splitMp3(bytes: Uint8Array, window: AudioWindow, seconds: number
   }
   return pieces;
 }
+
+export function extractMp3Window(bytes: Uint8Array, source: AudioWindow, wanted: AudioWindow) {
+  const { packets, duration, endOffset } = frames(bytes);
+  if (!packets.length || Math.abs(duration - (source.end - source.start)) > 3) {
+    throw new Error("mp3_duration");
+  }
+  const first = packets.findLast(packet => packet.time <= wanted.start - source.start) ?? packets[0];
+  const after = packets.find(packet => packet.time >= wanted.end - source.start);
+  return {
+    bytes: bytes.subarray(first.offset, after?.offset ?? endOffset),
+    window: { ...wanted, start: source.start + first.time },
+  };
+}

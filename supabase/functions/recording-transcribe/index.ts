@@ -1,6 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.58.0";
-import { maxPartBytes, maxRecordingSeconds, partCount } from "./audio-plan.ts";
-import { GeminiError, recognizePiece } from "./gemini.ts";
+import { maxPartBytes, maxRecordingSeconds, partCount, partWindow } from "./audio-plan.ts";
+import { GeminiError, recognizeAudioWindow } from "./gemini.ts";
+import { extractMp3Window } from "./mp3-parts.ts";
+import { nextPiece, pieceWindow } from "./piece-plan.ts";
+import { AudioSourceError, openRawAudio } from "./raw-media.ts";
+import { runBurst } from "./burst.ts";
 import type { Segment } from "./gemini.ts";
 import { handleMeetingSummary, tickSummaries } from "./summary-jobs.ts";
 import { handleQuestion } from "./questions.ts";
@@ -51,6 +55,7 @@ type Job = {
   error_code: string | null;
   updated_at: string;
   created_at: string;
+  submitted_at: string | null;
   part_count: number | null;
   duration_seconds: number | null;
   parts_done: number;
@@ -63,6 +68,9 @@ type Job = {
   retry_count: number;
   retry_at: string | null;
   telegram_binding_id: string | null;
+  source_kind: "legacy" | "raw";
+  piece_offset_seconds: number;
+  piece_seconds: number;
 };
 type ProviderResult = {
   id?: string;
@@ -87,6 +95,7 @@ type Action = {
   duration?: number;
   index?: number;
   partBytes?: number;
+  sourceKind?: "raw";
 };
 
 function reply(body: object, status = 200) {
@@ -188,7 +197,7 @@ async function updateJob(id: string, patch: Partial<Job>, previous?: Job["state"
   return data as Job | null;
 }
 
-type StoredAudio = Pick<Job, "id" | "audio_path" | "audio_removed" | "part_count">;
+type StoredAudio = Pick<Job, "id" | "audio_path" | "audio_removed" | "part_count" | "source_kind">;
 
 function partName(index: number) {
   return "part-" + index + ".mp3";
@@ -199,7 +208,7 @@ function partFolder(id: string) {
 }
 
 function audioPaths(job: StoredAudio) {
-  if (job.part_count === null) return [job.audio_path];
+  if (job.part_count === null || job.source_kind === "raw") return [job.audio_path];
   return Array.from({ length: job.part_count }, (_, index) => partFolder(job.id) + "/" + partName(index));
 }
 
@@ -218,7 +227,7 @@ async function removeAudio(job: StoredAudio) {
 async function cleanupExpiredUploads() {
   const cutoff = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
   const { data, error } = await db.from("transcription_jobs")
-    .select("id,audio_path,audio_removed,part_count,state").eq("audio_removed", false).lt("created_at", cutoff).limit(10);
+    .select("id,audio_path,audio_removed,part_count,source_kind,state").eq("audio_removed", false).lt("created_at", cutoff).limit(10);
   if (error || !data?.length) return;
   const { error: removalError } = await objects.remove(data.flatMap(audioPaths));
   if (removalError) return;
@@ -240,12 +249,17 @@ async function snapshot(job: Job) {
     partsDone: job.part_count === null ? undefined : job.parts_done,
     partCount: job.part_count ?? undefined,
     resumable: canResume(job) || undefined,
+    accepted: job.source_kind === "raw" && job.submitted_at !== null ||
+      job.state === "processing" || job.state === "completed",
+    sourceKind: job.source_kind,
   });
 }
 
 async function prepare(id: string, body: Action, request: Request, accessHash: string | null) {
   const size = body.size;
   const extension = body.extension ?? "";
+  if (body.sourceKind !== undefined && body.sourceKind !== "raw") return problem("invalid_request", 400);
+  if (body.sourceKind === "raw" && body.duration !== undefined) return problem("file_conflict", 409);
   if (typeof extension !== "string" || !Object.hasOwn(audioTypes, extension)) return problem("format", 400);
   if (typeof size !== "number" || !Number.isSafeInteger(size) || size < 1 || size > maxBytes) {
     return problem("file_size", 413);
@@ -259,9 +273,10 @@ async function prepare(id: string, body: Action, request: Request, accessHash: s
 
   const path = "recordings/" + id + "." + extension;
   if (accessHash) {
-    const { data, error } = await db.rpc("reserve_transcription_guest_upload", {
+    const { data, error } = await db.rpc("reserve_transcription_source_upload", {
       p_id: id, p_audio_path: path, p_audio_bytes: size,
       p_access_hash: accessHash, p_client_hash: await clientHash(request),
+      p_source_kind: body.sourceKind ?? "legacy",
     });
     if (error) throw error;
     if (data === "busy") return problem("service_busy", 429);
@@ -278,6 +293,9 @@ async function prepare(id: string, body: Action, request: Request, accessHash: s
   if (!job || job.access_hash !== accessHash) return problem("forbidden", 403);
   if (job.audio_path !== path || job.audio_bytes !== size) return problem("file_conflict", 409);
   if (job.state !== "uploading") return snapshot(job);
+
+  if (job.source_kind !== (body.sourceKind ?? "legacy")) return problem("file_conflict", 409);
+  if (job.source_kind === "raw" && duration !== undefined) return problem("file_conflict", 409);
 
   const originalName = safeRecordingName(body.name);
   if (originalName && !job.original_name) {
@@ -366,7 +384,7 @@ async function submit(job: Job, hash: string | null) {
 
   if (job.audio_removed) return problem("upload_expired", 410);
   let file: string | null = null;
-  if (job.part_count !== null) {
+  if (job.part_count !== null && job.source_kind !== "raw") {
     const { data, error } = await objects.list(partFolder(job.id), { limit: job.part_count + 1 });
     if (error) return problem("storage_signing", 502);
     const present = new Set(data.filter((item) => {
@@ -380,8 +398,10 @@ async function submit(job: Job, hash: string | null) {
   } else {
     const { data: info, error: infoError } = await objects.info(job.audio_path);
     if (infoError || Number(info?.size) !== job.audio_bytes) return problem("upload_incomplete", 409);
-    file = await audioSource(job);
-    if (!file) return problem("storage_signing", 502);
+    if (job.source_kind !== "raw") {
+      file = await audioSource(job);
+      if (!file) return problem("storage_signing", 502);
+    }
   }
 
   let locked: boolean;
@@ -401,6 +421,12 @@ async function submit(job: Job, hash: string | null) {
     return current ? snapshot(current) : problem("job_missing", 404);
   }
 
+  if (job.source_kind === "raw") {
+    const accepted = await readJob(job.id);
+    if (!accepted) return problem("server_error", 500);
+    await advancePart(accepted, task => EdgeRuntime.waitUntil(task));
+    return snapshot(accepted);
+  }
   if (job.part_count !== null) {
     const started = await updateJob(job.id, { state: "processing", error_code: null }, "submitting");
     return started ? await advancePart(started, (task) => EdgeRuntime.waitUntil(task)) : problem("server_error", 500);
@@ -443,63 +469,99 @@ async function submit(job: Job, hash: string | null) {
 }
 
 function canResume(job: Job) {
-  return job.part_count !== null && job.state === "failed" && !job.audio_removed &&
-    ["chunk_interrupted", "chunk_incomplete", "polza_key_rejected", "polza_balance", "polza_busy"].includes(job.error_code ?? "");
+  return (job.part_count !== null || job.source_kind === "raw") && job.state === "failed" && !job.audio_removed &&
+    ["chunk_interrupted", "chunk_incomplete", "polza_key_rejected", "polza_balance", "polza_busy",
+      "source_unavailable", "storage_signing"].includes(job.error_code ?? "");
 }
 
 async function savePart(job: Job, patch: Partial<Job>) {
   const { data, error } = await db.from("transcription_jobs")
     .update({ ...patch, updated_at: new Date().toISOString(), part_lease: null })
-    .eq("id", job.id).eq("state", "processing").eq("part_lease", job.part_lease!)
+    .eq("id", job.id).eq("state", job.state).eq("part_lease", job.part_lease!)
     .select("*").maybeSingle();
   if (error) throw error;
   return data as Job | null;
 }
 
-async function processPart(job: Job, key: string) {
-  const reduced = job.error_code === "reduce_piece";
+async function processPart(job: Job, key: string, timeout: number): Promise<Job | null> {
+  const seconds = job.error_code === "reduce_piece" ? Math.min(job.piece_seconds, 60) : job.piece_seconds;
+  const progress = { ...job, duration_seconds: job.duration_seconds!, piece_seconds: seconds };
   try {
-    const path = partFolder(job.id) + "/" + partName(job.parts_done);
-    const { data, error } = await objects.download(path);
-    if (error || !data || data.size < 1 || data.size > maxPartBytes) {
-      await savePart(job, { state: "failed", error_code: "upload_expired" });
-      return;
+    let piece;
+    if (job.source_kind === "raw") {
+      const { data, error } = await objects.createSignedUrl(job.audio_path, 300);
+      if (error || !data?.signedUrl) throw new GeminiError("storage_signing", 502);
+      const audio = await openRawAudio(data.signedUrl);
+      try {
+        if (job.duration_seconds === null) {
+          return await savePart(job, {
+            state: "processing", duration_seconds: audio.duration, part_count: partCount(audio.duration),
+            error_code: null, retry_at: null, retry_count: 0,
+          });
+        }
+        piece = await audio.extract(pieceWindow(progress));
+      } finally {
+        audio.close();
+      }
+    } else {
+      const path = partFolder(job.id) + "/" + partName(job.parts_done);
+      const { data, error } = await objects.download(path);
+      if (error || !data || data.size < 1 || data.size > maxPartBytes) {
+        await savePart(job, { state: "failed", error_code: "upload_expired" });
+        return null;
+      }
+      const bytes = new Uint8Array(await data.arrayBuffer());
+      try {
+        piece = { ...extractMp3Window(bytes, partWindow(job.parts_done, job.duration_seconds!), pieceWindow(progress)),
+          mimeType: "audio/mpeg" };
+      } catch {
+        throw new GeminiError("chunk_incomplete", 422, "invalid_audio");
+      }
     }
-    const bytes = new Uint8Array(await data.arrayBuffer());
-    const piece = await recognizePiece(key, bytes, job.parts_done, job.duration_seconds!, job.part_piece, job.segments, reduced);
-    const partsDone = job.parts_done + (piece.last ? 1 : 0);
-    const finished = partsDone === job.part_count;
+    const segments = await recognizeAudioWindow(key, piece.bytes, piece.window, job.segments, seconds < 120, timeout, piece.mimeType);
+    const next = nextPiece(progress, piece.window.end);
+    const finished = next.parts_done === job.part_count;
     const saved = await savePart(job, {
       state: finished ? "completed" : "processing",
-      parts_done: partsDone,
-      part_piece: piece.last ? 0 : job.part_piece + 1,
-      segments: [...job.segments, ...piece.segments],
+      ...next,
+      segments: [...job.segments, ...segments],
       error_code: null, retry_at: null, retry_count: 0,
     });
     if (finished && saved) await removeAudio(saved);
+    return saved;
   } catch (error) {
-    const code = error instanceof GeminiError ? error.code : "chunk_interrupted";
-    const status = error instanceof GeminiError ? error.status : 0;
+    const code = error instanceof GeminiError || error instanceof AudioSourceError ? error.code : "chunk_interrupted";
+    const status = error instanceof GeminiError || error instanceof AudioSourceError ? error.status : 502;
     const reason = error instanceof GeminiError ? error.reason ?? "" : "";
     console.warn("transcription_part_failed", code, status, job.parts_done, job.part_piece, reason);
-    const retrySmaller = reason === "MAX_TOKENS" && !reduced;
+    const retrySmaller = reason === "MAX_TOKENS" && seconds > 15;
     const retry = backgroundRetry(job.retry_count, status >= 500 || status === 429);
     await savePart(job, retrySmaller
-      ? { state: "processing", error_code: "reduce_piece", retry_at: null }
+      ? { state: "processing", piece_seconds: seconds / 2, error_code: null, retry_at: null, retry_count: 0 }
       : retry ?? { state: "failed", error_code: code }).catch(() => {
       console.warn("transcription_part_state_failed");
     });
+    return null;
   }
+}
+
+async function processBurst(job: Job, key: string) {
+  await runBurst(job, {
+    process: (current, timeout) => processPart(current, key, timeout),
+    claim: claimPart,
+    release: current => savePart(current, {}),
+    maxSteps: job.source_kind === "raw" ? 3 : 6,
+  });
 }
 
 async function advancePart(job: Job, schedule: (task: Promise<unknown>) => void) {
   if (job.retry_at && Date.parse(job.retry_at) > Date.now()) return snapshot(job);
-  if (job.state === "submitting") {
+  if (job.state === "submitting" && job.source_kind !== "raw") {
     const started = await updateJob(job.id, { state: "processing", error_code: null }, "submitting");
     if (!started) return snapshot(await readJob(job.id) ?? job);
     job = started;
   }
-  if (job.state !== "processing") return snapshot(job);
+  if (job.state !== "processing" && !(job.source_kind === "raw" && job.state === "submitting")) return snapshot(job);
   if (job.part_lease) {
     if (Date.now() - Date.parse(job.updated_at) < 155_000) return snapshot(job);
     const retry = backgroundRetry(job.retry_count, true);
@@ -508,22 +570,28 @@ async function advancePart(job: Job, schedule: (task: Promise<unknown>) => void)
   }
   const key = polzaKey();
   if (!key) return problem("polza_unconfigured", 503);
+  const leased = await claimPart(job);
+  if (leased) schedule(processBurst(leased, key));
+  return snapshot(leased ?? job);
+}
+
+async function claimPart(job: Job) {
   const { data, error } = await db.from("transcription_jobs")
     .update({ part_lease: crypto.randomUUID(), updated_at: new Date().toISOString() })
-    .eq("id", job.id).eq("state", "processing").eq("parts_done", job.parts_done)
+    .eq("id", job.id).eq("state", job.state).eq("parts_done", job.parts_done)
     .eq("part_piece", job.part_piece).eq("updated_at", job.updated_at).is("part_lease", null)
     .select("*").maybeSingle();
   if (error) throw error;
-  const leased = data as Job | null;
-  if (leased) schedule(processPart(leased, key));
-  return snapshot(leased ?? job);
+  return data as Job | null;
 }
 
 async function resume(job: Job) {
   if (!canResume(job)) return snapshot(job);
-  const errorCode = ["chunk_incomplete", "chunk_interrupted"].includes(job.error_code ?? "") ? "reduce_piece" : null;
+  const smaller = ["chunk_incomplete", "chunk_interrupted"].includes(job.error_code ?? "");
   const { data, error } = await db.from("transcription_jobs")
-    .update({ state: "processing", part_lease: null, error_code: errorCode, retry_count: 0, retry_at: null, updated_at: new Date().toISOString() })
+    .update({ state: job.part_count === null ? "submitting" : "processing", part_lease: null, error_code: null,
+      piece_seconds: smaller ? 15 : job.piece_seconds,
+      retry_count: 0, retry_at: null, updated_at: new Date().toISOString() })
     .eq("id", job.id).eq("state", "failed").eq("error_code", job.error_code!)
     .eq("audio_removed", false).select("*").maybeSingle();
   if (error) throw error;
@@ -629,7 +697,7 @@ async function tickTranscriptions(key: string, schedule: (task: Promise<unknown>
     .order("updated_at").limit(3);
   if (error) throw error;
   for (const job of data as Job[]) {
-    if (job.part_count !== null) await advancePart(job, schedule);
+    if (job.part_count !== null || job.source_kind === "raw") await advancePart(job, schedule);
     else if (job.state === "submitting") {
       if (now - Date.parse(job.updated_at) >= 120_000) {
         await updateJob(job.id, { state: "failed", error_code: "submission_unknown" }, "submitting");
